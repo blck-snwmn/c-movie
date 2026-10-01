@@ -1,0 +1,6 @@
+# Generated output (videos, music, previews)
+out/
+
+# Python
+__pycache__/
+.venv/
