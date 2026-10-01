@@ -1000,6 +1000,11 @@ def draw_caption(frame, d, t):
             cols = [LANES["claude"]["color"], LANES["openai"]["color"]]
         else:
             cols = [LANES[c["lane"]]["color"]]
+        # Vertical centers are taken from glyph bounding boxes of reference strings (not of the
+        # actual text), so the chip lines up with the caption and doesn't jitter between captions.
+        _, t_top, _, t_bot = f_t.getbbox("国A")
+        cy = y + (t_top + t_bot) / 2
+        _, d_top, _, d_bot = f_d.getbbox("0123456789.")
         # date chip
         chip = Image.new("RGBA", (int(wd + 24), 34), (0, 0, 0, 0))
         cd = ImageDraw.Draw(chip)
@@ -1009,8 +1014,8 @@ def draw_caption(frame, d, t):
             cd.rounded_rectangle([chip.width // 2, 0, chip.width - 1, 33], radius=17,
                                  fill=mix(BG, cols[1], 0.25) + (255,), outline=cols[1] + (255,), width=2)
             cd.rectangle([chip.width // 2 - 2, 2, chip.width // 2 + 8, 31], fill=mix(BG, cols[1], 0.25) + (255,))
-        cd.text((12, 5), date, font=f_d, fill=FG)
-        paste(frame, chip, x0 - 12, y + 6, a)
+        cd.text((12, chip.height / 2 - (d_top + d_bot) / 2), date, font=f_d, fill=FG)
+        paste(frame, chip, x0 - 12, cy - chip.height / 2, a)
         d.text((x0 + wd + 28, y), c["text"], font=f_t, fill=mix(BG, FG, a), stroke_width=4, stroke_fill=BG)
 
 
