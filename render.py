@@ -11,13 +11,14 @@ whole map including retired rows. Captions at the bottom explain key moments, an
 timeline show the number of releases per month.
 
 usage:
-  uv run python render.py [out.mp4] [music.wav]   (default: out/claude_chatgpt_evolution.mp4, out/music.wav)
+  uv run python render.py [out.mp4] [audio.wav]   (default: out/claude_chatgpt_evolution.mp4, out/soundtrack.wav)
   uv run python render.py --preview SECONDS...    (writes out/previews/preview_<SECONDS>.png)
 """
 import bisect
 import calendar
 import functools
 import glob
+import json
 import math
 import os
 import subprocess
@@ -105,6 +106,49 @@ RELEASES = [
     ("c5", "2026-09-28", "Sonnet 5.5", None, "30% 高速・価格据え置き", "model"),
     ("g6", "2026-09-29", "GPT-6.1 Sol", None, "Astra 級を 1/5 の価格で", "model"),
 ]
+# (date, color group, caption, narration). The caption appears at the bottom when the playhead
+# reaches the date, and the narration (read by VoiSona Talk) is spoken at the same time.
+# Narration length follows impact: turning points get a few sentences, minor events a short phrase,
+# and low-impact events (retirements) have no narration (None) and show only the caption.
+# Narration text spells English names in katakana so the voice reads them correctly.
+CAPTIONS = [
+    ("2022-11-30", "openai", "ChatGPT 公開 — 対話 AI ブームの始まり",
+     "2022年11月、オープンエーアイが、チャットジーピーティーを公開。誰でもエーアイと会話できるサービスとして、わずか5日で100万人が登録し、対話エーアイのブームが始まりました。"),
+    ("2023-03-14", "both", "GPT-4 と Claude が同じ日に登場",
+     "2023年3月14日。ジーピーティーフォーと、最初のクロードが、同じ日に発表されました。"),
+    ("2023-07-11", "claude", "Claude 2 と同時に claude.ai（ベータ）が公開",
+     "7月には、クロード2が登場しました。"),
+    ("2024-03-04", "claude", "Claude 3 世代：Opus / Sonnet / Haiku の 3 サイズ展開",
+     "2024年3月には、クロード3世代が登場。"),
+    ("2024-05-13", "openai", "GPT-4o：音声・画像をネイティブに扱うモデルへ",
+     "5月のジーピーティーフォーオーは、テキスト、音声、画像を、ひとつのモデルでそのまま扱えるようになりました。人と話すような速さで、声でやりとりできるようになったのも、この頃です。"),
+    ("2024-07-18", "openai", "GPT-3.5 系が引退し、系譜は GPT-4 系へ",
+     None),
+    ("2024-09-12", "openai", "o1-preview：「考えてから答える」推論モデルが登場",
+     "9月のオーワンプレビューは、答える前にじっくり考える、推論モデルです。数学やプログラミングのような難しい問題で、性能が大きく伸び、ここから、考える時間を使うモデルが主流になっていきます。"),
+    ("2024-10-22", "claude", "Computer Use：AI が PC を操作し始める",
+     "10月、アンソロピックは、コンピューターユースを公開。エーアイが画面を見て、マウスやキーボードを操作する、エージェントの時代の始まりです。"),
+    ("2025-02-24", "claude", "Claude 3.7 Sonnet：通常応答と推論をひとつのモデルに",
+     "クロード3.7ソネットでは、通常の応答と推論が、ひとつのモデルにまとまりました。"),
+    ("2025-05-22", "claude", "Claude 4 世代へ",
+     "5月、クロード4世代が登場しました。"),
+    ("2025-08-07", "openai", "GPT-5：GPT と o シリーズがひとつに",
+     "8月のジーピーティーファイブでは、すばやく答えるモデルと、じっくり考えるモデルを、自動で切り替える仕組みが入り、ジーピーティーと、オーシリーズの流れが、ひとつに統合されました。"),
+    ("2025-11-12", "both", "リリースは加速し、1〜2 か月ごとに新モデルが出る時代へ",
+     "このころから、リリースのペースが加速。1、2か月ごとに、新しいモデルが登場するようになります。"),
+    ("2026-06-09", "claude", "Claude 5 世代：Fable / Mythos クラスが登場",
+     "2026年6月、クロード5世代が登場。ミトスクラスと呼ばれる、これまでで最も高い性能のモデルに、安全対策を加えて、一般向けにしたのがフェイブルです。制限を外したミトスは、サイバーセキュリティの分野で、限られたパートナーにだけ提供されました。"),
+    ("2026-06-27", "openai", "GPT-4 系が ChatGPT から引退",
+     None),
+    ("2026-09-03", "openai", "GPT-6 Astra 登場",
+     "そして9月、ジーピーティーシックス、アストラが登場。パソコン操作やコーディング、サイバーセキュリティ、科学の分野で最高水準の性能を示し、オープンエーアイは、最も賢く、意図に沿って動くモデルだとしています。"),
+]
+NARRATION_INTRO = "クロードとチャットジーピーティー、2つのエーアイの歩みを見ていきましょう。"
+NARRATION_OUTRO = ("チャットジーピーティーの公開から、およそ4年。"
+                   "2つの系譜は、これからも枝分かれしながら、進化を続けていきます。")
+# VoiSona Talk voice settings (style_weights for Ui: Normal, Happy, Angry, Sad, Sweet)
+NARRATION_VOICE = dict(voice_name="ui_ja_JP", voice_version="2.0.0",
+                       global_parameters={"speed": 1.15, "style_weights": [0, 1, 0, 0, 0]})
 START = "2022-11-01"
 TODAY = "2026-10-01"
 
@@ -320,14 +364,40 @@ GLOW = {lid: glow_sprite(46, L["color"], 110) for lid, L in lines.items()}
 
 # ---------------------------------------------------------------- timing
 T_INTRO = 3.5
-T_MAIN = 80.0
+T_MAIN_BASE = 80.0     # length of the main part before stretching it for narration
 T_HOLD = 0.6
 T_ZOOM = 2.8           # duration of the final camera pull-back
-T_OUTRO = 6.5
 T_FADE = 1.2
-TOTAL = T_INTRO + T_MAIN + T_HOLD + T_ZOOM + T_OUTRO + T_FADE
-T_REVEAL = T_INTRO + T_MAIN + T_HOLD
 CARD_LIFE = {"gen": 3.2, "major": 2.4, "model": 1.7, "end": 2.6}
+NARRATION_GAP = 0.5    # silence kept between two narrations (seconds)
+SILENT_CAPTION_T = 2.5 # how long a caption without narration stays up
+NARRATION_INTRO_AT = 0.6
+NARRATION_DIR = os.path.join(OUT_DIR, "narration")
+
+
+def _load_narration():
+    """Narration durations from out/narration/manifest.json, keyed by cue id.
+    Only entries whose text still matches are used, so edited lines are treated as not yet synthesized."""
+    path = os.path.join(NARRATION_DIR, "manifest.json")
+    if not os.path.exists(path):
+        return {}
+    with open(path, encoding="utf-8") as f:
+        manifest = json.load(f)
+    texts = narration_texts()
+    return {cid: m["duration"] for cid, m in manifest.items() if texts.get(cid) == m.get("text")}
+
+
+def narration_texts():
+    """All narration lines keyed by cue id ("intro", "caption_01", ..., "outro")."""
+    texts = {"intro": NARRATION_INTRO}
+    for i, c in enumerate(CAPTIONS):
+        if c[3]:
+            texts[f"caption_{i + 1:02d}"] = c[3]
+    texts["outro"] = NARRATION_OUTRO
+    return texts
+
+
+NARRATION_DUR = _load_narration()
 
 
 def _dwell(m):
@@ -346,7 +416,46 @@ _ms = [P0 + (P1 - P0) * i / _N for i in range(_N + 1)]
 _ts = [0.0]
 for i in range(1, _N + 1):
     _ts.append(_ts[-1] + (_ms[i] - _ms[i - 1]) * _dwell(_ms[i]))
-_ts = [T_INTRO + T_MAIN * t / _ts[-1] for t in _ts]
+_ts = [T_INTRO + T_MAIN_BASE * t / _ts[-1] for t in _ts]
+
+
+def _stretch(m_a, m_b, extra):
+    """Add `extra` seconds of screen time over months m_a..m_b (later times shift too).
+    Most of it goes right after m_a, so the playhead lingers near the event being narrated."""
+    i_a, i_b = bisect.bisect_left(_ms, m_a), min(bisect.bisect_left(_ms, m_b), _N)
+    t_a, t_b = _ts[i_a], _ts[i_b]
+    for i in range(i_a, _N + 1):
+        u = 1.0 if i >= i_b or t_b <= t_a else (_ts[i] - t_a) / (t_b - t_a)
+        _ts[i] += extra * (1 - (1 - u) ** 3)
+
+
+# Each narration must finish (plus a short gap) before the next one starts. Missing room is
+# added to the stretch of timeline between the two cues; the intro borrows from the opening.
+_cue_ms = [month_of(c[0]) for c in CAPTIONS]
+_prev_end = NARRATION_INTRO_AT + NARRATION_DUR.get("intro", 0.0)
+_prev_m = P0
+for _i, _m in enumerate(_cue_ms):
+    _t = _ts[min(bisect.bisect_left(_ms, _m), _N)]
+    if not CAPTIONS[_i][3]:
+        # a caption without narration doesn't hold the timeline back: it is shown right after the
+        # previous narration ends, and only the following cue has to make room for it
+        _prev_end = max(_t, _prev_end + 0.2) + SILENT_CAPTION_T
+        _prev_m = _m
+        continue
+    _need = _prev_end + NARRATION_GAP - _t
+    if _need > 0:
+        _stretch(_prev_m, _m, _need)
+        _t += _need
+    _prev_end = _t + NARRATION_DUR.get(f"caption_{_i + 1:02d}", 0.0)
+    _prev_m = _m
+if _prev_end + NARRATION_GAP > _ts[-1]:
+    _stretch(_prev_m, P1, _prev_end + NARRATION_GAP - _ts[-1])
+
+T_MAIN = _ts[-1] - T_INTRO
+T_REVEAL = T_INTRO + T_MAIN + T_HOLD
+NARRATION_OUTRO_AT = T_REVEAL + 1.2
+T_OUTRO = max(6.5, NARRATION_OUTRO_AT + NARRATION_DUR.get("outro", 0.0) + 1.5 - (T_REVEAL + T_ZOOM))
+TOTAL = T_INTRO + T_MAIN + T_HOLD + T_ZOOM + T_OUTRO + T_FADE
 
 
 def playhead(t):
@@ -444,28 +553,29 @@ for e in events:
 
 
 # ---------------------------------------------------------------- captions
-# (date, color group, caption). Shown at the bottom when the playhead reaches the date.
-CAPTIONS = [
-    ("2022-11-30", "openai", "ChatGPT 公開 — 対話 AI ブームの始まり"),
-    ("2023-03-14", "both", "GPT-4 と Claude が同じ日に登場"),
-    ("2023-07-11", "claude", "Claude 2 と同時に claude.ai（ベータ）が公開"),
-    ("2024-03-04", "claude", "Claude 3 世代：Opus / Sonnet / Haiku の 3 サイズ展開"),
-    ("2024-05-13", "openai", "GPT-4o：音声・画像をネイティブに扱うモデルへ"),
-    ("2024-07-18", "openai", "GPT-3.5 系が引退し、系譜は GPT-4 系へ"),
-    ("2024-09-12", "openai", "o1-preview：「考えてから答える」推論モデルが登場"),
-    ("2024-10-22", "claude", "Computer Use：AI が PC を操作し始める"),
-    ("2025-02-24", "claude", "Claude 3.7 Sonnet：通常応答と推論をひとつのモデルに"),
-    ("2025-05-22", "claude", "Claude 4 世代へ"),
-    ("2025-08-07", "openai", "GPT-5：GPT と o シリーズがひとつに"),
-    ("2025-11-12", "both", "リリースは加速し、1〜2 か月ごとに新モデルが出る時代へ"),
-    ("2026-06-09", "claude", "Claude 5 世代：Fable / Mythos クラスが登場"),
-    ("2026-06-27", "openai", "GPT-4 系が ChatGPT から引退"),
-    ("2026-09-03", "openai", "GPT-6 Astra 登場"),
-]
-captions = [dict(t=time_at(month_of(d)), lane=lane, text=txt, date=d) for d, lane, txt in CAPTIONS]
+captions = []
+for _i, (d, lane, txt, _speech) in enumerate(CAPTIONS):
+    captions.append(dict(id=f"caption_{_i + 1:02d}", t=time_at(month_of(d)), lane=lane, text=txt, date=d))
+_busy_until = 0.0
 for i, c in enumerate(captions):
     nxt = captions[i + 1]["t"] if i + 1 < len(captions) else T_REVEAL
-    c["end"] = min(c["t"] + 4.2, nxt - 0.15)
+    dur = NARRATION_DUR.get(c["id"])
+    if dur:
+        # keep the caption up while its narration plays
+        c["end"] = c["t"] + dur + 0.3
+    else:
+        # a caption without narration waits for the previous narration to finish
+        c["t"] = max(c["t"], _busy_until + 0.2)
+        c["end"] = min(c["t"] + SILENT_CAPTION_T, nxt - 0.15)
+    _busy_until = max(_busy_until, c["end"])
+
+
+def narration_cues():
+    """(cue id, start time, duration) for every synthesized narration line, in playback order."""
+    cues = [("intro", NARRATION_INTRO_AT)] + [(c["id"], c["t"]) for c in captions]
+    cues.append(("outro", NARRATION_OUTRO_AT))
+    return [(cid, t, NARRATION_DUR[cid]) for cid, t in cues if cid in NARRATION_DUR]
+
 
 # Releases per month (for the bars on the timeline)
 MONTHS = {}
@@ -982,7 +1092,7 @@ def main():
             render(float(s)).save(os.path.join(preview_dir, f"preview_{s}.png"))
         return
     out = args[0] if args else os.path.join(OUT_DIR, "claude_chatgpt_evolution.mp4")
-    default_audio = os.path.join(OUT_DIR, "music.wav")
+    default_audio = os.path.join(OUT_DIR, "soundtrack.wav")
     audio = args[1] if len(args) > 1 else (default_audio if os.path.exists(default_audio) else None)
     os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
     n = int(TOTAL * FPS)

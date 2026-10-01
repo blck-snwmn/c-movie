@@ -1,11 +1,13 @@
-"""Synthesize background music synced to the render.py video and write it as WAV.
+"""Synthesize the soundtrack synced to the render.py video and write it as WAV.
 
 Pad, bass and arpeggio play over an Am - F - C - G progression; drums join as the timeline
 advances so the track builds up. Bells mark new generations, small chimes mark flagship models
 and a falling tone marks retirements, all at the video's event times. At the final pull-back
 (T_REVEAL) the drums stop and the last chord rings out.
+If narration has been synthesized (make_narration.py), it is mixed in at its cue times and the
+music is ducked while it plays.
 
-usage: uv run python make_music.py [out.wav]   (default: out/music.wav)
+usage: uv run python make_music.py [out.wav]   (default: out/soundtrack.wav)
 """
 import os
 import sys
@@ -15,7 +17,7 @@ import numpy as np
 
 import render as R
 
-SR = 44100
+SR = 48000            # matches the VoiSona Talk output
 BPM = 96
 BEAT = 60 / BPM
 BAR = BEAT * 4
@@ -227,9 +229,38 @@ fade_out = smoothstep((R.TOTAL - t_all) / 3.0)
 master *= (fade_in * fade_out)[:, None]
 master = np.tanh(master * 1.6) / np.tanh(1.6)
 master /= np.max(np.abs(master)) / 0.89
+
+
+# ---------------------------------------------------------------- narration
+MUSIC_GAIN = 0.55      # overall music level, so the voice sits above it
+DUCK_GAIN = 0.35       # extra music attenuation while narration plays (about -9 dB)
+VOICE_RMS_DB = -16.0   # loudness each narration line is normalized to
+
+
+def load_wav_mono(path):
+    with wave.open(path) as w:
+        if w.getframerate() != SR or w.getsampwidth() != 2:
+            raise ValueError(f"{path}: expected {SR} Hz 16-bit audio")
+        x = np.frombuffer(w.readframes(w.getnframes()), dtype="<i2").astype(np.float64) / 32768
+        return x.reshape(-1, w.getnchannels()).mean(axis=1)
+
+
+duck = np.ones(N)
+voice = np.zeros(N)
+for cid, start, dur in R.narration_cues():
+    clip = load_wav_mono(os.path.join(R.NARRATION_DIR, f"{cid}.wav"))
+    clip *= 10 ** (VOICE_RMS_DB / 20) / max(np.sqrt(np.mean(clip ** 2)), 1e-6)
+    clip *= min(1.0, 0.95 / max(np.max(np.abs(clip)), 1e-6))
+    add(voice, start, clip)
+    # dip the music slightly before the voice and recover after it
+    k = smoothstep((t_all - (start - 0.3)) / 0.3) * smoothstep((start + dur + 0.6 - t_all) / 0.6)
+    duck = np.minimum(duck, 1 - (1 - DUCK_GAIN) * k)
+
+master = master * (MUSIC_GAIN * duck)[:, None] + voice[:, None]
+master /= max(np.max(np.abs(master)) / 0.95, 1.0)
 master = master[: int(R.TOTAL * SR)]
 
-out = sys.argv[1] if len(sys.argv) > 1 else os.path.join(R.OUT_DIR, "music.wav")
+out = sys.argv[1] if len(sys.argv) > 1 else os.path.join(R.OUT_DIR, "soundtrack.wav")
 os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
 with wave.open(out, "wb") as w:
     w.setnchannels(2)
