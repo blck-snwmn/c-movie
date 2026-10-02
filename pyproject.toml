@@ -9,3 +9,4 @@ dependencies = [
 
 [tool.uv]
 required-version = "==0.10.0"
+exclude-newer = "7 days"
