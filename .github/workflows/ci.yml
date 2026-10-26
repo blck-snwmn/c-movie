@@ -1,0 +1,28 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install uv
+        uses: aquaproj/aqua-installer@82d0e83878a8657c4a6f2ff1755d3bfbfc67f329 # v4.1.0
+        with:
+          aqua_version: v2.64.0
+      - name: Install Python
+        run: uv python install
+      - name: Install dependencies
+        run: uv sync --locked
+      - name: Compile Python sources
+        run: uv run python -m compileall -q render.py make_music.py make_narration.py voisona.py

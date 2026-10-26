@@ -1,9 +1,9 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.14"
 
 [options]
-exclude-newer = "2026-09-24T14:09:23.028489Z"
+exclude-newer = "0001-01-01T00:00:00Z" # This has no effect and is included for backwards compatibility when using relative exclude-newer values.
 exclude-newer-span = "P7D"
 
 [[package]]
@@ -17,8 +17,8 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "numpy", specifier = ">=2.5.3" },
-    { name = "pillow", specifier = ">=12.3.0" },
+    { name = "numpy", specifier = "==2.5.3" },
+    { name = "pillow", specifier = "==12.3.0" },
 ]
 
 [[package]]
