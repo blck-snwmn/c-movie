@@ -6,3 +6,6 @@ dependencies = [
     "numpy==2.5.3",
     "pillow==12.3.0",
 ]
+
+[tool.uv]
+exclude-newer = "7 days"
